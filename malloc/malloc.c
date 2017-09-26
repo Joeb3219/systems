@@ -86,6 +86,26 @@ void* mymalloc(uint size){
 	return NULL;
 }
 
+// Frees some data that we previously malloc'd via mymalloc.
+// It is pertinent that the pointer is exactly as returned by mymalloc.
+// 4 bytes before ptr will be the metadata we need to free up this space.
+void myfree(void* ptr){
+	// We move back 4 bytes such that we are now at the metadata portion.
+	ptr = (void*) (((char*) ptr) - 4);
+	uint metadata, isFree, blockSize;
+	metadata = readUint(ptr);
+	isFree = (metadata >> 31);
+	blockSize = (metadata & 0x7FFFFFFF);
+
+	setData(ptr, blockSize, MALLOC_FREE);
+
+	// Now we attempt to merge this block into the block above it, if it exists.
+	void* nextBlock = (ptr + blockSize + MALLOC_BYTES_METADATA_PER_BLOCK);
+	if( nextBlock < (data + MALLOC_INITIAL_REQUEST_SIZE - 1){
+		printf("Examining the block above the currently free'd block, at %p\n", nextBlock);
+	}
+}
+
 // define the data for a block.
 // This expects arguments as follows:
 // address: (of where to place the first metadata block),
