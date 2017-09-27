@@ -6,6 +6,7 @@
 	typedef unsigned char uchar;
 
 	void* mymalloc(uint size);
+	void myfree(void* ptr);
 	void setData(void* address, uint size, int free);
 	uint readUint(void* address);
 #endif

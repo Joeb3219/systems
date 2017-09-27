@@ -13,6 +13,8 @@
 #include <unistd.h>
 #include "malloc.h"
 
+#define DEBUG 0
+
 #ifndef MALLOC_INITIAL_REQUEST_SIZE
 	#define MALLOC_INITIAL_REQUEST_SIZE 4096
 #endif
@@ -34,15 +36,15 @@
 uchar *data = NULL;
 
 void* mymalloc(uint size){
+	printf("[Call] Being asked to malloc %d bytes\n", size);
 	uint isFree, blockSize, metadata;
 	// We begin by sbrk'ing our memory region if that has not yet happened.
 	// In this naive implementation, we will not ever request more memory after we've filled our banks.
 	// Thus, this is all we get.
 	if(data == NULL){
 		data = sbrk(MALLOC_INITIAL_REQUEST_SIZE);
-		printf("Data pointer returned by sbrk: %p\n", data);
 		if(data == NULL || data == 0){
-			printf("SBRK RETURNED NULL!\n");
+			return NULL;
 		}
 		setData(data, useableBytes(MALLOC_INITIAL_REQUEST_SIZE), MALLOC_FREE);
 	}
@@ -54,25 +56,20 @@ void* mymalloc(uint size){
 	// We check that we haven't exceeded our boundaries for this memory block, which exist at
 	// (data + MALLOC_INITIAL_REQUEST_SIZE) - 1
 	while( ptr < (data + MALLOC_INITIAL_REQUEST_SIZE - 1) ){
-		printf("Currently examining the block at: %p\n", ptr);
 		metadata = readUint(ptr);
 		isFree = (metadata >> 31);
 		blockSize = (metadata & 0x7FFFFFFF);
-		printf("The block is of size %d and free status: %d\n", blockSize, isFree);
 		if(blockSize >= size){
-			printf("This block is large enough for our request\n");
 			// First, we decide if there will be enough bytes after we are finished such that we can even allocate another block after.
 			// If we cannot, then we will absorb this whole block for this request
 			// This occurs when the difference between the blocksize and the request is > 0 && <= 8 bytes.
 			// Reasoning for above: if the difference is 0, we take up the full block.
 			// If the difference is 9 or more, then we can fit 8 bytes of metadata + 1 block of space.
 			if((blockSize - size) >= 0 && (blockSize - size) <= 8){
-				printf("This block isn't big enough to be used after this request, so we're giving you all of its space.\n");
 				// Set these bytes to inuse, and return the first useable address.
 				setData(ptr, blockSize, MALLOC_INUSE);
 				return (void*) (ptr + 4);
 			}else{
-				printf("There's enough room in this block to create a free block of %d bytes after your request.\n", useableBytes(blockSize-size));
 				// Set size bytes to inuse
 				setData(ptr, size, MALLOC_INUSE);
 				// Then set the chunk after this
@@ -90,6 +87,7 @@ void* mymalloc(uint size){
 // It is pertinent that the pointer is exactly as returned by mymalloc.
 // 4 bytes before ptr will be the metadata we need to free up this space.
 void myfree(void* ptr){
+	printf("[Call] Being asked to free %p\n", ptr);
 	// We move back 4 bytes such that we are now at the metadata portion.
 	ptr = (void*) (((char*) ptr) - 4);
 	uint metadata, isFree, blockSize;
@@ -100,9 +98,10 @@ void myfree(void* ptr){
 	setData(ptr, blockSize, MALLOC_FREE);
 
 	// Now we attempt to merge this block into the block above it, if it exists.
-	void* nextBlock = (ptr + blockSize + MALLOC_BYTES_METADATA_PER_BLOCK);
-	if( nextBlock < (data + MALLOC_INITIAL_REQUEST_SIZE - 1){
+	void* nextBlock = (void*) (ptr + blockSize + MALLOC_BYTES_METADATA_PER_BLOCK);
+	if( ((uchar*) nextBlock) < (data + MALLOC_INITIAL_REQUEST_SIZE - 1) ){
 		printf("Examining the block above the currently free'd block, at %p\n", nextBlock);
+		
 	}
 }
 
@@ -112,11 +111,13 @@ void myfree(void* ptr){
 // size: (number of bytes that the block actually possesses for usage).
 // free: (MALLOC_INUSE for in use, or MALLOC_FREE for free).
 void setData(void* address, uint size, int free){
+	if(DEBUG){
+		if(free == MALLOC_FREE) printf("Setting %d blocks at %p to free.\n", size, address);
+		else printf("Setting %d blocks at %p to inuse.\n", size, address);
+	}
 	uint* p = (uint*) address;
-	printf("Setting data at %p to: %0x\n", p, (free << 31) | (size & 0x79FFFFFF));
 	(*p) = (free << 31) | (size & 0x09FFFFFF);
 	p = (uint*) (((uchar*) address) + (MALLOC_BYTES_BEFORE_BLOCK + size));
-	printf("Setting data at %p to: %0x\n", p, (free << 31) | (size & 0x79FFFFFF));
 	(*p) = (free << 31) | (size & 0x09FFFFFF);
 }
 
