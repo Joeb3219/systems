@@ -36,7 +36,7 @@
 uchar *data = NULL;
 
 void* mymalloc(uint size){
-	printf("[Call] Being asked to malloc %d bytes\n", size);
+	if(DEBUG) printf("[Call] Being asked to malloc %d bytes\n", size);
 	uint isFree, blockSize, metadata;
 	// We begin by sbrk'ing our memory region if that has not yet happened.
 	// In this naive implementation, we will not ever request more memory after we've filled our banks.
@@ -87,7 +87,7 @@ void* mymalloc(uint size){
 // It is pertinent that the pointer is exactly as returned by mymalloc.
 // 4 bytes before ptr will be the metadata we need to free up this space.
 void myfree(void* ptr){
-	printf("[Call] Being asked to free %p\n", ptr);
+	if(DEBUG) printf("[Call] Being asked to free %p\n", ptr);
 	// We move back 4 bytes such that we are now at the metadata portion.
 	ptr = (void*) (((char*) ptr) - 4);
 	uint metadata, isFree, blockSize;
@@ -95,14 +95,46 @@ void myfree(void* ptr){
 	isFree = (metadata >> 31);
 	blockSize = (metadata & 0x7FFFFFFF);
 
+	if(DEBUG) printf("This block is of size: %d\n", blockSize);
+
+	// At a minimum, we set this block to free.
 	setData(ptr, blockSize, MALLOC_FREE);
 
 	// Now we attempt to merge this block into the block above it, if it exists.
-	void* nextBlock = (void*) (ptr + blockSize + MALLOC_BYTES_METADATA_PER_BLOCK);
+	void* nextBlock = (void*) (((char*)ptr) + blockSize + MALLOC_BYTES_METADATA_PER_BLOCK);
 	if( ((uchar*) nextBlock) < (data + MALLOC_INITIAL_REQUEST_SIZE - 1) ){
-		printf("Examining the block above the currently free'd block, at %p\n", nextBlock);
-		
+		if(DEBUG) printf("Examining the block above the currently free'd block, at %p\n", nextBlock);
+		// Grab the metadata of this block so that we can see if it is free.
+		metadata = readUint(nextBlock);
+		if( (metadata >> 31) == MALLOC_FREE){
+			// This block is also free, so we can perform a merge up.
+			// The new size will gain 8 bytes (the old endtag of this block + the old start block of the next block) + how ever big the new block is.
+			blockSize += (metadata & 0x7FFFFFFF) + 8;
+			setData(ptr, blockSize, MALLOC_FREE);
+		}
 	}
+
+	// Now we attempt to merge this block into the block below it, if it exists.
+	// Since directly below our ptr is MALLOC_BYTES_AFTER_BLOCK of metadata, we can move down that
+	// many bytes.
+	// We can check if this tag is where our data line ends and if not attempt to do a merge.
+	nextBlock = (void*) ( ((char*) ptr) - MALLOC_BYTES_AFTER_BLOCK);
+	if( ((uchar*) nextBlock) > data ){
+		if(DEBUG) printf("Examining the block below the currently free'd block, at %p\n", nextBlock);
+		// Grab the metadata of this block so that we can see if it is free.
+		metadata = readUint(nextBlock);
+		if( (metadata >> 31) == MALLOC_FREE){
+			// This block is also free, so we can perform a merge up.
+			// The new size will gain 8 bytes (the old endtag of this block + the old start block of the next block) + how ever big the new block is.
+			blockSize += (metadata & 0x7FFFFFFF) + 8;
+			// The actual block we're going to be starting at is the start of this block.
+			// We are currently looking at: |META|DATA|META|, where we are in the last section.
+			// So we have to move our nextBlock back the size of the data + 1 meta.
+			nextBlock = (void*) ( ((uchar*) nextBlock) - MALLOC_BYTES_BEFORE_BLOCK - (metadata & 0x7FFFFFFF) );
+			setData(nextBlock, blockSize, MALLOC_FREE);
+		}
+	}
+
 }
 
 // define the data for a block.
